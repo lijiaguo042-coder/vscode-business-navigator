@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.vscode-test/
+*.vsix
+# 独立项目保留依赖清单和锁文件。
+!package.json
+!package-lock.json

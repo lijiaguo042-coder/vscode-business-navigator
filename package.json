@@ -1,0 +1,177 @@
+{
+  "name": "vscode-business-navigator",
+  "displayName": "Laravel / Vue 业务链导航",
+  "description": "纯静态分析 Laravel 5.8 / Vue 2 业务链，支持接口跳转、反向引用和侧栏导航。",
+  "version": "0.1.0",
+  "publisher": "local-tools",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:php",
+    "onLanguage:vue",
+    "onLanguage:javascript"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc && esbuild src/extension.ts src/worker.ts --bundle --platform=node --main-fields=module,main --target=node18 --external:vscode --outdir=dist",
+    "test": "node --test test/*.test.cjs",
+    "test:host": "node scripts/test-host.cjs",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "businessNavigator.showChain",
+        "title": "业务链：显示当前代码关联",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "businessNavigator.findRelated",
+        "title": "业务链：查找关联调用"
+      },
+      {
+        "command": "businessNavigator.rebuild",
+        "title": "业务链：重建索引",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "businessNavigator.togglePin",
+        "title": "业务链：固定 / 取消固定入口",
+        "icon": "$(pin)"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "businessNavigator.chain",
+          "name": "业务链导航"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "businessNavigator.togglePin",
+          "when": "view == businessNavigator.chain",
+          "group": "navigation"
+        },
+        {
+          "command": "businessNavigator.rebuild",
+          "when": "view == businessNavigator.chain",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "businessNavigator.showChain",
+          "when": "resourceLangId =~ /^(php|vue|javascript)$/",
+          "group": "navigation"
+        },
+        {
+          "command": "businessNavigator.findRelated",
+          "when": "resourceLangId =~ /^(php|vue|javascript)$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "业务链导航",
+      "properties": {
+        "businessNavigator.sourceRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "resources/js",
+            "app",
+            "routes"
+          ],
+          "description": "工作区内的源码目录；Composer PSR-4 目录自动加入。"
+        },
+        "businessNavigator.routeEntrypoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "app/Providers/RouteServiceProvider.php"
+          ],
+          "description": "路由服务提供者或直接加载的路由文件。"
+        },
+        "businessNavigator.requestModules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "resources/js/utils/request.js"
+          ],
+          "description": "导出 Axios 请求函数的模块路径。"
+        },
+        "businessNavigator.requestBasePath": {
+          "type": "string",
+          "default": "/api",
+          "description": "请求封装的基础路径，可填 URL；只用于拼接相对 API 地址。"
+        },
+        "businessNavigator.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/vendor/**",
+            "**/node_modules/**",
+            "**/public/**",
+            "**/storage/**",
+            "**/.git/**",
+            "**/tools/vscode-business-navigator/**"
+          ],
+          "description": "额外排除的 glob；依赖、产物、插件自身始终排除。"
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "vue",
+        "extensions": [
+          ".vue"
+        ],
+        "aliases": [
+          "Vue",
+          "vue"
+        ]
+      }
+    ]
+  },
+  "dependencies": {
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "jsonc-parser": "^3.3.1",
+    "minimatch": "^9.0.5",
+    "php-parser": "^3.2.0",
+    "vue-template-compiler": "2.6.10"
+  },
+  "devDependencies": {
+    "@types/babel__traverse": "^7.20.6",
+    "@types/node": "^20.17.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/test-electron": "^2.5.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lijiaguo042-coder/vscode-business-navigator.git"
+  }
+}
