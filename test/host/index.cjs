@@ -23,7 +23,16 @@ exports.run=async function run(){
  const pos=api.positionAt(api.getText().indexOf("'/items'")+2);
  editor.selection=new vscode.Selection(pos,pos);
  let defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',api.uri,pos);
- assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('ItemsController.php')),'URL 必须定位控制器');console.log('HOST: URL definitions passed');
+ assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('routes/api.php')),'URL 默认必须定位路由');
+ const config=vscode.workspace.getConfiguration('businessNavigator',api.uri);
+ const apiRefs=await vscode.commands.executeCommand('vscode.executeReferenceProvider',api.uri,pos);
+ assert.ok(apiRefs.some(r=>r.uri.fsPath.endsWith('A.vue')),'URL 查找引用仍应解析到控制器的反向调用');
+ try{
+   await config.update('apiDefinitionTarget','controller',vscode.ConfigurationTarget.WorkspaceFolder);
+   defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',api.uri,pos);
+   assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('ItemsController.php')),'切换配置后 URL 必须直接定位控制器');
+ }finally{await config.update('apiDefinitionTarget',undefined,vscode.ConfigurationTarget.WorkspaceFolder);}
+ console.log('HOST: 默认路由、控制器配置切换和 URL 引用通过');
  await vscode.commands.executeCommand('businessNavigator.showChain');
  if(process.env.BUSINESS_NAV_PREVIEW){
    console.log('HOST PREVIEW: 90 秒交互验收窗口');
@@ -33,6 +42,11 @@ exports.run=async function run(){
  await vscode.commands.executeCommand('businessNavigator.togglePin');
  await vscode.commands.executeCommand('businessNavigator.togglePin');
  await vscode.commands.executeCommand('editor.action.revealDefinition');
+ assert.ok(vscode.window.activeTextEditor.document.uri.fsPath.endsWith('routes/api.php'),'F12 命令默认必须打开路由');
+ const routeEditor=vscode.window.activeTextEditor;
+ const handlerPos=routeEditor.document.positionAt(routeEditor.document.getText().indexOf('ItemsController@index')+2);
+ routeEditor.selection=new vscode.Selection(handlerPos,handlerPos);
+ await vscode.commands.executeCommand('editor.action.revealDefinition');
  assert.ok(vscode.window.activeTextEditor.document.uri.fsPath.endsWith('ItemsController.php'),'F12 命令必须打开控制器');
  const controller=await vscode.workspace.openTextDocument(uri('app/Http/Controllers/ItemsController.php'));
  const methodPos=controller.positionAt(controller.getText().indexOf('function index')+'function '.length);
@@ -41,6 +55,29 @@ exports.run=async function run(){
  const servicePos=controller.positionAt(controller.getText().indexOf('->list')+3);
  defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',controller.uri,servicePos);
  assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('ItemService.php')),'注入服务方法应可跳转');console.log('HOST: F12, references and service passed');
+ const service=await vscode.workspace.openTextDocument(uri('app/Services/ItemService.php'));
+ const serviceEditor=await vscode.window.showTextDocument(service);
+ const facadePos=service.positionAt(service.getText().indexOf('getBanList')+2);
+ serviceEditor.selection=new vscode.Selection(facadePos,facadePos);
+ defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,facadePos);
+ assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('/Utils/GameUtils.php')),'服务内 Facade 调用必须提供实际实现');
+ await vscode.commands.executeCommand('editor.action.revealDefinition');
+ assert.ok(vscode.window.activeTextEditor.document.uri.fsPath.endsWith('/Utils/GameUtils.php'),'Facade F12 必须打开实现而非注释声明');
+ const implementation=vscode.window.activeTextEditor.document;
+ const implementationRefs=await vscode.commands.executeCommand('vscode.executeReferenceProvider',implementation.uri,implementation.positionAt(implementation.getText().indexOf('getBanList')+2));
+ assert.ok(implementationRefs.some(r=>r.uri.fsPath.endsWith('ItemService.php')),'实现方法反向引用必须包含服务');
+ assert.ok(implementationRefs.some(r=>r.uri.fsPath.endsWith('A.vue')),'实现方法反向引用必须包含上游 Vue 页面');
+ const provider=await vscode.workspace.openTextDocument(uri('app/Providers/AppServiceProvider.php'));
+ await vscode.window.showTextDocument(provider);
+ const bindingEdit=new vscode.WorkspaceEdit();
+ bindingEdit.replace(provider.uri,new vscode.Range(provider.positionAt(0),provider.positionAt(provider.getText().length)),provider.getText().replace('new GameUtils','new ReplacementGameUtils'));
+ await vscode.workspace.applyEdit(bindingEdit);
+ defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,facadePos);
+ assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('/Utils/ReplacementGameUtils.php')),'未保存绑定修改后必须跳转新实现');
+ await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+ defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,facadePos);
+ assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('/Utils/GameUtils.php')),'丢弃绑定修改后必须恢复原实现');
+ console.log('HOST: 服务 Facade 实现 F12、反向 Vue 引用和绑定编辑丢弃通过');
  await vscode.window.showTextDocument(api);
  const edit=new vscode.WorkspaceEdit(); edit.replace(api.uri,new vscode.Range(api.positionAt(0),api.positionAt(api.getText().length)),api.getText().replace('/items','/missing'));
  await vscode.workspace.applyEdit(edit);

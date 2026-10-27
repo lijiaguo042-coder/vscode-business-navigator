@@ -44,7 +44,7 @@ function value(node: Ast, context: Context): any {
     }
     return items.map((entry: Ast) => value(entry?.value, context));
   }
-  if (node.kind === 'staticlookup' && name(node.offset).toLowerCase() === 'class') return resolveClass(node.what, context);
+  if (node.kind === 'staticlookup' && node.offset?.kind === 'identifier' && name(node.offset).toLowerCase() === 'class') return resolveClass(node.what, context);
   if (node.kind === 'bin' && node.type === '.') {
     const left = value(node.left, context), right = value(node.right, context);
     return typeof left === 'string' && typeof right === 'string' ? left + right : undefined;
@@ -243,6 +243,56 @@ export function analyzePhp(files: Map<string, string>, root: string, entrypoints
       visitProvider('map'); visitProvider('boot');
     }
   }
+  const bindings = new Map<string, Set<string | undefined>>();
+  let dynamicBinding = false;
+  for (const provider of classes) {
+    if (resolveClass(provider.node.extends, provider.context)?.toLowerCase() !== 'illuminate\\support\\serviceprovider') continue;
+    for (const member of provider.node.body || []) {
+      if (member.kind !== 'method' || !['register', 'boot'].includes(name(member.name).toLowerCase())) continue;
+      const direct = new Set<Ast>();
+      // 仅接受直线语句前缀中的绑定，遇到分支或退出后不假定后续代码必然执行。
+      for (const statement of member.body?.children || []) {
+        if (statement.kind !== 'expressionstatement') break;
+        direct.add(statement.expression);
+      }
+      walk(member.body, child => {
+        if (child.kind !== 'call' || child.what?.kind !== 'propertylookup') return;
+        const receiver = child.what.what;
+        if (receiver?.kind !== 'propertylookup' || receiver.what?.kind !== 'variable' || name(receiver.what) !== 'this' || receiver.offset?.kind !== 'identifier' || name(receiver.offset) !== 'app') return;
+        if (!['singleton', 'bind'].includes(name(child.what.offset).toLowerCase()) || child.what.offset?.kind !== 'identifier') return;
+        const key = value(child.arguments?.[0], provider.context);
+        if (typeof key !== 'string' || !key) { dynamicBinding = true; return; }
+        const concrete = child.arguments?.[1];
+        let target: string | undefined;
+        if (direct.has(child)) {
+          if (concrete?.kind === 'closure') {
+            const statements = concrete.body?.children || [];
+            if (statements.length === 1 && statements[0].kind === 'return' && statements[0].expr?.kind === 'new') target = resolveClass(statements[0].expr.what, provider.context);
+          } else {
+            const decoded = value(concrete, provider.context);
+            if (typeof decoded === 'string' && /^\\?[a-z_][a-z\d_]*(?:\\[a-z_][a-z\d_]*)*$/i.test(decoded)) target = decoded.replace(/^\\/, '');
+          }
+        }
+        const candidates = bindings.get(key) ?? new Set<string | undefined>();
+        candidates.add(target?.toLowerCase()); bindings.set(key, candidates);
+      });
+    }
+  }
+  const facades = new Map<string, { target?: string; methods: Map<string, string> }>();
+  for (const item of classes) {
+    if (resolveClass(item.node.extends, item.context)?.toLowerCase() !== 'illuminate\\support\\facades\\facade') continue;
+    const members = (item.node.body || []).filter((member: Ast) => member.kind === 'method');
+    const accessor = members.find((member: Ast) => name(member.name).toLowerCase() === 'getfacadeaccessor' && member.isStatic);
+    const statements = accessor?.body?.children || [];
+    const key = statements.length === 1 && statements[0].kind === 'return' ? value(statements[0].expr, item.context) : undefined;
+    let target: string | undefined;
+    if (typeof key === 'string' && key && !dynamicBinding) {
+      const candidates = bindings.get(key);
+      if (candidates?.size === 1) target = [...candidates][0];
+      else if (!candidates && statements[0].expr.kind === 'staticlookup') target = key.toLowerCase();
+    }
+    facades.set(item.className.toLowerCase(), { target, methods: new Map<string, string>(members.map((member: Ast) => [name(member.name).toLowerCase(), member.visibility || 'public'])) });
+  }
   for (const item of classes) {
     if (!item.file.includes(`${path.sep}app${path.sep}`) || item.file.includes(`${path.sep}Providers${path.sep}`)) continue;
     const members: Ast[] = (item.node.body || []).filter((member: Ast) => member.kind === 'method');
@@ -293,7 +343,15 @@ export function analyzePhp(files: Map<string, string>, root: string, entrypoints
         if (!method) return;
         if (lookup.offset?.kind !== 'identifier') { calls.push({method:'动态方法',site:span(item.file,lookup.offset),reason:'方法名由运行时表达式确定'}); return; }
         let className: string | undefined;
-        if (lookup.kind === 'staticlookup') className = resolveClass(lookup.what,item.context,item.className);
+        if (lookup.kind === 'staticlookup') {
+          className = resolveClass(lookup.what,item.context,item.className);
+          const facade = className && facades.get(className.toLowerCase());
+          if (facade) {
+            const visibility = facade.methods.get(method.toLowerCase());
+            const own = visibility && (visibility === 'public' || className?.toLowerCase() === item.className.toLowerCase());
+            if (!own) className = facade.methods.has('__callstatic') ? undefined : facade.target;
+          }
+        }
         else if (lookup.what?.kind === 'variable') className = name(lookup.what) === 'this' ? item.className : variables.get(name(lookup.what));
         else if (lookup.what?.kind === 'propertylookup' && name(lookup.what.what) === 'this') className = properties.get(name(lookup.what.offset));
         else if (lookup.what?.kind === 'new') className = resolveClass(lookup.what.what,item.context,item.className);

@@ -12,11 +12,44 @@ const fixture = new Map([
  ['/p/app/Services/ItemService.php', '<?php namespace App\\Services; class ItemService { public function list(){} }'],
 ]);
 const opts={...defaults,routeEntrypoints:['routes/api.php']};
+test('const 前缀拼接的相对 URL 能定位控制器，外部地址不参与本地匹配',()=>{
+ const file='/p/resources/js/api/items.js';
+ const files=new Map(fixture);
+ files.set('/p/routes/api.php',files.get('/p/routes/api.php').replaceAll("'items'","'admin/items'"));
+ for(const base of ['/api','https://example.com/api/']){
+  for(const url of ["PREFIX + '/items'","'/admin/items'","'https://example.com/admin/items'","'//example.com/admin/items'","'ftp://example.com/admin/items'"]){
+   const source=`import request from '@/utils/request'; const PREFIX='admin'; export function list(){return request({url:${url},method:'get'});}`;
+   files.set(file,source);
+   const graph=buildIndex(files,'/p',{...opts,requestBasePath:base});
+   const defs=graph.definitions(file,source.indexOf(url)+2,'controller');
+   assert.deepEqual(defs.map(node=>node.label),url.startsWith('PREFIX')||url==="'/admin/items'"?['ItemsController::index']:[],`${base}: ${url}`);
+  }
+ }
+});
+test('URL 默认定位路由，可选择控制器，路由处理器和服务仍定位方法',()=>{
+ const graph=buildIndex(fixture,'/p',opts);
+ const file='/p/resources/js/api/items.js';
+ const pos=fixture.get(file).indexOf("'/items'")+2;
+ const routes=graph.definitions(file,pos);
+ assert.deepEqual(routes.map(node=>node.label),['GET|HEAD /api/items']);
+ const route=routes[0];
+ const handler=fixture.get(route.file).indexOf('ItemsController@index')+2;
+ for(const mode of ['route','controller']){
+  assert.deepEqual(graph.definitions(route.file,handler,mode).map(node=>node.label),['ItemsController::index']);
+  const controllerFile='/p/app/Http/Controllers/ItemsController.php';
+  assert.deepEqual(graph.definitions(controllerFile,fixture.get(controllerFile).indexOf('->list')+2,mode).map(node=>node.label),['ItemService::list']);
+ }
+ const files=new Map(fixture);
+ files.delete('/p/app/Http/Controllers/ItemsController.php');
+ const missing=buildIndex(files,'/p',opts);
+ assert.equal(missing.definitions(file,pos)[0].kind,'route');
+ assert.deepEqual(missing.definitions(file,pos,'controller'),[]);
+});
 test('URL 定义按方法定位控制器，侧栏完整链路和反向页面调用共用同一索引',()=>{
  const graph=buildIndex(fixture,'/p',opts);
  const file='/p/resources/js/api/items.js';
  const pos=fixture.get(file).indexOf("'/items'")+2;
- const defs=graph.definitions(file,pos);
+ const defs=graph.definitions(file,pos,'controller');
  assert.equal(defs.length,1);
  assert.match(defs[0].label,/index/);
  const api=graph.nodeAt(file,pos);

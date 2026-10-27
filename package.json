@@ -2,9 +2,13 @@
   "name": "vscode-business-navigator",
   "displayName": "Laravel / Vue 业务链导航",
   "description": "纯静态分析 Laravel 5.8 / Vue 2 业务链，支持接口跳转、反向引用和侧栏导航。",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "local-tools",
   "license": "MIT",
+  "homepage": "https://github.com/lijiaguo042-coder/vscode-business-navigator#readme",
+  "bugs": {
+    "url": "https://github.com/lijiaguo042-coder/vscode-business-navigator/issues"
+  },
   "engines": {
     "vscode": "^1.85.0",
     "node": ">=20"
@@ -86,6 +90,14 @@
     "configuration": {
       "title": "业务链导航",
       "properties": {
+        "businessNavigator.apiDefinitionTarget": {
+          "type": "string",
+          "enum": ["route", "controller"],
+          "enumDescriptions": ["先打开 Laravel 路由定义", "直接打开控制器方法"],
+          "default": "route",
+          "scope": "resource",
+          "description": "API URL 的 Cmd+点击 / F12 跳转目标；切换后下次跳转生效。"
+        },
         "businessNavigator.sourceRoots": {
           "type": "array",
           "items": {

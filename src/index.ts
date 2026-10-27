@@ -7,9 +7,9 @@ import { CodeNode, Edge, IndexOptions, Span, nodeId } from './types';
 function contains(span: Span, file: string, offset: number): boolean {
   return span.file === file && span.end > span.start && offset >= span.start && offset < span.end;
 }
-/** 规范本地请求路径，保留动态占位段；不无条件删除接口前缀。 */
+/** 将本地相对或斜杠开头的请求拼接到基础路径，排除协议和外部地址。 */
 function requestPath(url: string, base: string): string | undefined {
-  if (!url.startsWith('/') || url.startsWith('//')) return undefined;
+  if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return undefined;
   const basePath = /^https?:\/\//.test(base) ? new URL(base).pathname : base;
   return ('/' + basePath.replace(/^\/+|\/+$/g, '') + '/' + url.replace(/^\/+/, '')).replace(/\/+/g, '/').split(/[?#]/)[0].replace(/\/$/, '') || '/';
 }
@@ -48,13 +48,13 @@ export class NavigationIndex {
     if (sites.length) return this.nodes.get(sites[0].from);
     return [...this.nodes.values()].filter(n => contains(n, file, offset)).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
   }
-  /** 返回源码位置的确定目标；URL 直接定位控制器，侧栏仍保留路由层。 */
-  definitions(file: string, offset: number): CodeNode[] {
+  /** 返回源码位置的确定目标；API URL 默认定位路由，可按设置直达控制器。 */
+  definitions(file: string, offset: number, apiTarget: 'route' | 'controller' = 'route'): CodeNode[] {
     const edges = this.edges.filter(e => contains(e.site, file, offset));
     const output = new Map<string, CodeNode>();
     for (const edge of edges) {
       const node = this.nodes.get(edge.to)!;
-      const targets = node.kind === 'route' ? this.outgoing(node.id).filter(n => n.kind === 'controller') : [node];
+      const targets = node.kind === 'route' && apiTarget === 'controller' ? this.outgoing(node.id).filter(n => n.kind === 'controller') : [node];
       for (const target of targets) if (target.kind !== 'unresolved') output.set(`${target.file}:${target.start}`, target);
     }
     return [...output.values()];
@@ -83,7 +83,6 @@ export function buildIndex(files: Map<string, string>, root: string, options: In
   const nodes = [...frontend.nodes, ...php.routes.map(r => r.node), ...php.methods.map(m => m.node)];
   const edges = [...frontend.edges];
   const methods = new Map(php.methods.map(m => [`${m.className.toLowerCase()}::${m.name.toLowerCase()}`, m]));
-  const controllers = new Set(php.routes.map(r => r.controller?.toLowerCase()));
   for (const route of php.routes) {
     const method = methods.get(`${route.controller?.toLowerCase()}::${route.action?.toLowerCase()}`);
     if (method) edges.push({ from: route.node.id, to: method.node.id, site: route.handler ?? route.node });
@@ -102,8 +101,7 @@ export function buildIndex(files: Map<string, string>, root: string, options: In
     }
   }
   for (const method of php.methods) {
-    // 首版只展开控制器的方法直接调用，不展开服务内部调用树。
-    if (method.node.kind !== 'controller' && !controllers.has(method.className.toLowerCase())) continue;
+    // 每个应用方法只记录直接调用，逐层浏览与循环停止由关系图和侧栏处理。
     for (const call of method.calls) {
       const target = call.className && methods.get(`${call.className.toLowerCase()}::${call.method.toLowerCase()}`);
       if (target) edges.push({ from: method.node.id, to: target.node.id, site: call.site });

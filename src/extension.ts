@@ -207,7 +207,8 @@ export function activate(context: vscode.ExtensionContext): void {
       async provideDefinition(document, pos, token) {
         const state = manager.state(document.uri); if (!state) return [];
         const graph = await manager.ensure(state); if (token.isCancellationRequested) return [];
-        return graph.definitions(document.uri.fsPath, document.offsetAt(pos)).map(n => manager.location(state, n));
+        const target = vscode.workspace.getConfiguration('businessNavigator', state.folder.uri).get<'route' | 'controller'>('apiDefinitionTarget', 'route');
+        return graph.definitions(document.uri.fsPath, document.offsetAt(pos), target).map(n => manager.location(state, n));
       },
     }),
     vscode.languages.registerReferenceProvider(selector, {
@@ -216,7 +217,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const state = manager.state(document.uri); if (!state) return [];
         const graph = await manager.ensure(state); if (token.isCancellationRequested) return [];
         // 点击调用点时对目标符号查引用，方法体内则对当前方法查引用。
-        const targets = graph.definitions(document.uri.fsPath, document.offsetAt(pos));
+        const targets = graph.definitions(document.uri.fsPath, document.offsetAt(pos), 'controller');
         const node = targets.length ? targets : [graph.nodeAt(document.uri.fsPath, document.offsetAt(pos))].filter(Boolean) as CodeNode[];
         const locations = new Map<string, vscode.Location>();
         for (const target of node) for (const span of [...graph.references(target.id), ...(options.includeDeclaration ? [target] : [])]) locations.set(`${span.file}:${span.start}:${span.end}`, manager.location(state, span));

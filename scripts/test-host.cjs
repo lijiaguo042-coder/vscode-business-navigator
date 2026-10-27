@@ -15,7 +15,11 @@ async function main() {
     'app/Providers/RouteServiceProvider.php': "<?php namespace App\\Providers; class RouteServiceProvider {protected $namespace='App\\Http\\Controllers'; public function map(){ $this->mapApi(); } protected function mapApi(){\\Route::prefix('api')->namespace($this->namespace)->group(base_path('routes/api.php'));}}",
     'routes/api.php': "<?php Route::get('items','ItemsController@index');",
     'app/Http/Controllers/ItemsController.php': '<?php namespace App\\Http\\Controllers; use App\\Services\\ItemService; class ItemsController {private $service; public function __construct(ItemService $s){$this->service=$s;} public function index(){$this->service->list();}}',
-    'app/Services/ItemService.php': '<?php namespace App\\Services; class ItemService { public function list(){} }',
+    'app/Services/ItemService.php': '<?php namespace App\\Services; use App\\Utils\\Facades\\GameUtils; class ItemService { public function list(){return GameUtils::getBanList();} }',
+    'app/Utils/Facades/GameUtils.php': "<?php namespace App\\Utils\\Facades; use Illuminate\\Support\\Facades\\Facade; /** @method static getBanList() */ class GameUtils extends Facade {protected static function getFacadeAccessor(){return 'game-utils';}}",
+    'app/Utils/GameUtils.php': '<?php namespace App\\Utils; class GameUtils {public function getBanList(){return [];}}',
+    'app/Utils/ReplacementGameUtils.php': '<?php namespace App\\Utils; class ReplacementGameUtils {public function getBanList(){return [];}}',
+    'app/Providers/AppServiceProvider.php': "<?php namespace App\\Providers; use Illuminate\\Support\\ServiceProvider; use App\\Utils\\GameUtils; use App\\Utils\\ReplacementGameUtils; class AppServiceProvider extends ServiceProvider {public function boot(){$this->app->singleton('game-utils',function(){return new GameUtils;});}}",
   };
   for (const [name, text] of Object.entries(sources)) {
     const file = path.join(fixture, name); await fs.mkdir(path.dirname(file), {recursive:true}); await fs.writeFile(file,text);
