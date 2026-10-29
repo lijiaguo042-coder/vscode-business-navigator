@@ -80,8 +80,20 @@ export class NavigationIndex {
 export function buildIndex(files: Map<string, string>, root: string, options: IndexOptions): NavigationIndex {
   const frontend = analyzeFrontend(files, root, options);
   const php = analyzePhp(files, root, options.routeEntrypoints);
-  const nodes = [...frontend.nodes, ...php.routes.map(r => r.node), ...php.methods.map(m => m.node)];
+  const nodes = [...frontend.nodes, ...php.routes.map(r => r.node), ...php.methods.map(m => m.node), ...php.configs.map(c => c.node)];
   const edges = [...frontend.edges];
+  const phpFiles = new Map<string, CodeNode>();
+  for (const config of php.configs) {
+    let owner: CodeNode | undefined = php.methods.filter(method => contains(method.node, config.site.file, config.site.start)).sort((a, b) => (a.node.end - a.node.start) - (b.node.end - b.node.start))[0]?.node;
+    if (!owner) {
+      owner = phpFiles.get(config.site.file);
+      if (!owner) {
+        owner = { file: config.site.file, start: 0, end: files.get(config.site.file)?.length ?? 0, id: nodeId(config.site.file, 0, 'php-file'), kind: 'page', label: path.basename(config.site.file) };
+        phpFiles.set(config.site.file, owner); nodes.push(owner);
+      }
+    }
+    edges.push({ from: owner.id, to: config.node.id, site: config.site });
+  }
   const methods = new Map(php.methods.map(m => [`${m.className.toLowerCase()}::${m.name.toLowerCase()}`, m]));
   for (const route of php.routes) {
     const method = methods.get(`${route.controller?.toLowerCase()}::${route.action?.toLowerCase()}`);

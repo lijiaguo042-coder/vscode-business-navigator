@@ -3,7 +3,7 @@ import { CodeNode, PhpResult, Span, nodeId } from './types';
 // php-parser 提供 PHP 语法树；分析过程不加载 PHP 文件或执行应用代码。
 const Engine = require('php-parser');
 type Ast = any;
-interface Context { namespace: string; aliases: Map<string, string>; providerNamespace?: string }
+interface Context { namespace: string; aliases: Map<string, string>; functions?: Map<string, string>; providerNamespace?: string }
 interface Group { prefix: string; namespace: string }
 
 /** 遍历语法节点，跳过位置元数据。 */
@@ -84,10 +84,11 @@ function singular(word: string): string {
 }
 /** 静态分析 PHP 路由与应用类方法，所有输入均来自工作区快照。 */
 export function analyzePhp(files: Map<string, string>, root: string, entrypoints: string[]): PhpResult {
-  const result: PhpResult = { routes: [], methods: [], errors: [] };
+  const result: PhpResult = { routes: [], methods: [], configs: [], errors: [] };
   const parser = new Engine({ parser: { version: '7.1', suppressErrors: false }, ast: { withPositions: true } });
   const parsed = new Map<string, Ast>();
   const contexts = new WeakMap<object, Context>();
+  const declaredFunctions = new Set<string>();
   const classes: { file: string; node: Ast; context: Context; className: string }[] = [];
   /** 延迟解析路由文件，并记录不含源码的语法错误。 */
   function parse(file: string): Ast | undefined {
@@ -108,7 +109,16 @@ export function analyzePhp(files: Map<string, string>, root: string, entrypoints
   /** 收集各 namespace 内的 use 别名与类声明。 */
   function collect(node: Ast, context: Context, file: string): void {
     const children = node.children || [];
-    const local: Context = { ...context, aliases: new Map(context.aliases) };
+    const local: Context = { ...context, aliases: new Map(context.aliases), functions: new Map(context.functions) };
+    for (const child of children) {
+      if (child.kind !== 'namespace') walk(child, nested => {
+        if (nested.kind === 'function') declaredFunctions.add([local.namespace, name(nested.name)].filter(Boolean).join('\\').toLowerCase());
+      });
+      if (child.kind === 'usegroup') for (const item of child.items || []) if ((item.type || child.type) === 'function') {
+        const full = [child.name, item.name].filter(Boolean).join('\\').replace(/^\\/, '').toLowerCase();
+        local.functions!.set((name(item.alias) || full.split('\\').pop()!).toLowerCase(), full);
+      }
+    }
     for (const child of children) {
       if (child.kind === 'usegroup' && !child.type) for (const item of child.items || []) {
         if (item.type) continue;
@@ -360,5 +370,53 @@ export function analyzePhp(files: Map<string, string>, root: string, entrypoints
       result.methods.push({node,className:item.className,name:methodName,calls});
     }
   }
+  /** 从配置文件返回数组定位静态键，不求值配置内容或读取环境变量。 */
+  function configTarget(key: string): CodeNode | undefined {
+    const parts = key.split('.');
+    if (!/^[a-z\d_-]+$/i.test(parts[0]) || parts.some(part => !part || /[\\/\0]/.test(part))) return undefined;
+    const file = path.join(root, 'config', parts[0] + '.php');
+    if (!files.has(file)) return undefined;
+    if (parts.length === 1) return { file, start: 0, end: 0, id: nodeId(file, 0, 'config-file'), kind: 'config', label: key };
+    const ast = parse(file);
+    if (!ast) return undefined;
+    const statements = ast.children || [];
+    if (statements.some((statement: Ast) => !['return', 'usegroup', 'expressionstatement', 'declare'].includes(statement.kind))) return undefined;
+    const returns = statements.filter((statement: Ast) => statement.kind === 'return');
+    if (returns.length !== 1) return undefined;
+    let array = returns[0].expr, target: Ast;
+    for (const part of parts.slice(1)) {
+      if (array?.kind !== 'array') return undefined;
+      const entries = new Map<string, Ast>();
+      for (const entry of array.items || []) {
+        const decoded = value(entry?.key, contexts.get(ast)!);
+        if (typeof decoded !== 'string' && typeof decoded !== 'number') return undefined;
+        entries.set(String(decoded), entry);
+      }
+      const entry = entries.get(part);
+      if (!entry) return undefined;
+      target = entry.key; array = entry.value;
+    }
+    const location = span(file, target);
+    return { ...location, id: nodeId(file, location.start, 'config'), kind: 'config', label: key };
+  }
+  /** 收集全局 config helper 的读取位置，尊重命名空间函数和导入遮蔽。 */
+  function visitConfigCalls(node: Ast, file: string, context: Context): void {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(child => visitConfigCalls(child, file, context)); return; }
+    const scoped = contexts.get(node) || context;
+    if (node.kind === 'call' && node.what?.kind === 'name' && node.what.resolution !== 'rn') {
+      const raw = name(node.what).toLowerCase();
+      const imported = scoped.functions?.get(raw);
+      const shadowed = declaredFunctions.has([scoped.namespace, raw].filter(Boolean).join('\\').toLowerCase());
+      const resolved = raw.startsWith('\\') ? raw.slice(1) : imported ?? (!shadowed && raw === 'config' ? 'config' : undefined);
+      const key = value(node.arguments?.[0], scoped);
+      if (resolved === 'config' && !declaredFunctions.has('config') && typeof key === 'string') {
+        const target = configTarget(key);
+        if (target) result.configs.push({ node: target, site: span(file, node.arguments[0]) });
+      }
+    }
+    for (const key of Object.keys(node)) if (!['loc', 'comments', 'tokens'].includes(key)) visitConfigCalls(node[key], file, scoped);
+  }
+  for (const [file, ast] of parsed) if (ast) visitConfigCalls(ast, file, contexts.get(ast)!);
   return result;
 }

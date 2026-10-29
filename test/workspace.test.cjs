@@ -23,3 +23,14 @@ test('扫描遵循目录配置、PSR-4、强制排除、符号链接和未保存
   assert.ok(![...files.keys()].some(p=>p.includes('node_modules')));
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+test('默认扫描配置目录，配置未保存内容覆盖磁盘，排除配置目录仍然生效',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'business-nav-config-'));
+ try{
+  await fs.mkdir(path.join(root,'config'));
+  const file=path.join(root,'config/application.php');
+  await fs.writeFile(file,"<?php return ['enabled'=>false];");
+  const files=await collectSources(root,defaults,new Map([[file,"<?php return ['enabled'=>true];"]]));
+  assert.equal(files.get(file),"<?php return ['enabled'=>true];");
+  assert.ok(!(await collectSources(root,{...defaults,exclude:['config/**']})).has(file));
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});

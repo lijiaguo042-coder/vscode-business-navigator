@@ -6,7 +6,7 @@
 
 要求 VS Code 1.85 或更新版本，Cursor 已通过隔离宿主测试。运行已打包插件不需要安装 Node、PHP 或项目依赖。
 
-1. 从 [GitHub Releases](https://github.com/lijiaguo042-coder/vscode-business-navigator/releases/latest) 下载 **`vscode-business-navigator-0.1.2.vsix`**（不要下载 Source code 源码压缩包作为插件安装）。也可使用 [0.1.2 安装包直链](https://github.com/lijiaguo042-coder/vscode-business-navigator/releases/download/v0.1.2/vscode-business-navigator-0.1.2.vsix)。
+1. 从 [GitHub Releases](https://github.com/lijiaguo042-coder/vscode-business-navigator/releases/latest) 下载 **`vscode-business-navigator-0.1.3.vsix`**（不要下载 Source code 源码压缩包作为插件安装）。也可使用 [0.1.3 安装包直链](https://github.com/lijiaguo042-coder/vscode-business-navigator/releases/download/v0.1.3/vscode-business-navigator-0.1.3.vsix)。
 2. 在 VS Code 或 Cursor 打开命令面板：macOS 按 **Cmd+Shift+P**，Windows / Linux 按 **Ctrl+Shift+P**，运行 **Extensions: Install from VSIX…**，选择下载的 VSIX。
 3. 安装后执行 **Developer: Reload Window**，打开 Laravel / Vue 项目根目录，在 API 的 `url` 表达式上按 F12 验证。
 
@@ -17,19 +17,20 @@
 VS Code：
 
 ```bash
-"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension ./vscode-business-navigator-0.1.2.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension ./vscode-business-navigator-0.1.3.vsix
 ```
 
 Cursor：
 
 ```bash
-"/Applications/Cursor.app/Contents/Resources/app/bin/cursor" --install-extension ./vscode-business-navigator-0.1.2.vsix
+"/Applications/Cursor.app/Contents/Resources/app/bin/cursor" --install-extension ./vscode-business-navigator-0.1.3.vsix
 ```
 
 更新时下载新版 VSIX，重复安装并重新加载窗口。VSIX 是安装包，不要直接在终端执行该文件。
 
 - 在 API 的 `url` 表达式上 **Cmd+点击 / F12**，默认先打开 Laravel 路由；继续在路由的控制器字符串上跳转可进入控制器方法。可通过 `apiDefinitionTarget` 改为 URL 直接打开控制器，多个目标使用原生候选列表。
 - 在 Resource 实例方法、控制器及服务 / 工具类中的已确定调用上跳转到方法定义。明确的 Laravel Facade 绑定可定位真实实现，例如服务内的 `GameUtils::getBanList(...)`。
+- 在 PHP 的 `config('application.upload_zipfile_v2')` 字符串上跳转到 `config/application.php` 对应键名；支持文件入口和点分多级显式键、反向引用。动态或缺失键不会跳到其他配置。
 - 命令面板运行 **业务链：显示当前代码关联**，或展开资源管理器的 **业务链导航**。树中分别展开上游调用、下游关联，点击节点打开源码。URL 到控制器之间的路由层保留在树中。
 - 运行 **业务链：查找关联调用**，或使用原生 **查找所有引用**，查看后端到前端的引用。方法声明上查找最直接；在方法体内选中其他调用时原生引用查询作用于被调用目标。
 - 侧栏图钉固定当前编辑器入口，再点一次取消。固定方法删除后显示入口不可用，不自动换成其他方法。
@@ -45,13 +46,15 @@ Cursor：
 | 设置 | 默认值 / 用途 |
 | --- | --- |
 | `apiDefinitionTarget` | `route`：URL 先跳路由；`controller`：URL 直接跳控制器 |
-| `sourceRoots` | `resources/js`、`app`、`routes`；Composer `autoload.psr-4` 工作区内目录自动加入 |
+| `sourceRoots` | `resources/js`、`app`、`routes`、`config`；Composer `autoload.psr-4` 工作区内目录自动加入 |
 | `routeEntrypoints` | `app/Providers/RouteServiceProvider.php`；也可直接指定路由文件 |
 | `requestModules` | `resources/js/utils/request.js`，默认导出的请求函数模块 |
 | `requestBasePath` | `/api`；表示请求封装的基础路径，支持填 URL 并取 pathname |
 | `exclude` | 额外 glob 排除项；vendor、node_modules、public、storage、.git、插件自身始终排除 |
 
 路径相对于各工作区根目录，不跟随符号链接或读取工作区外路径。`jsconfig.json` 支持 JSONC 注释、`baseUrl` 和 `paths`；未提供时默认识别 `@/* → resources/js/*`。每个工作区独立索引，嵌套工作区内容改变时也会失效包含它的父索引。
+
+如果已有自定义 `sourceRoots`，升级后请自行加入 `config`。配置导航只定位静态返回数组的显式键，不执行配置文件或求值 `env()`，不模拟运行时覆盖；`Config::get()` 和跨函数动态配置结构暂不支持。
 
 `requestBasePath` 必须对应实际 Axios 基础路径；请求 `/privacy-protocol/versions` 默认匹配 `/api/privacy-protocol/versions`。不会为了匹配而任意删除 `/api`。直接写完整外部 URL 的请求不进行本地路由猜测。
 
@@ -110,6 +113,8 @@ npm run package
 
 源码与功能日志分别位于 `src/` 和 `doc/`；生成的 `node_modules/`、`out/`、`dist/`、VSIX 均不进入 Git，运行构建和打包命令即可生成。
 
-最新 0.1.2 的构建、31 项自动化测试，以及 VS Code / Cursor 隔离宿主中的 Facade 实现跳转、反向引用和绑定修改 / 丢弃验收通过；本地验收平台为 macOS，Windows / Linux 尚未独立验收。
+0.1.2 的构建、31 项自动化测试，以及 VS Code / Cursor 隔离宿主中的 Facade 实现跳转、反向引用和绑定修改 / 丢弃验收通过；本地验收平台为 macOS，Windows / Linux 尚未独立验收。
+
+0.1.3 增加 Laravel 配置 helper 导航，构建、36 项自动化测试，以及 Cursor / VS Code 隔离宿主中的配置键 F12、反向引用和配置编辑 / 丢弃验收通过。
 
 发布维护步骤见 [GitHub 分发](doc/发布/GitHub分发.md)。问题反馈请附插件版本、编辑器版本、相关目录配置及脱敏的最小示例，提交到 [GitHub Issues](https://github.com/lijiaguo042-coder/vscode-business-navigator/issues)。

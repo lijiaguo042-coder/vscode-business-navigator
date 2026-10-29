@@ -167,7 +167,7 @@ class ChainTree implements vscode.TreeDataProvider<Item>, vscode.Disposable {
     const tree = new vscode.TreeItem(item.label ?? node?.label ?? '', hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     if (item.group) { tree.iconPath = new vscode.ThemeIcon(item.direction === 'in' ? 'call-incoming' : 'call-outgoing'); return tree; }
     if (node && item.state) {
-      tree.description = { page: '页面 / 函数', api: '接口', route: '路由', controller: '控制器', service: '服务', unresolved: '未解析' }[node.kind];
+      tree.description = { page: '页面 / 函数', api: '接口', route: '路由', controller: '控制器', service: '服务', config: '配置', unresolved: '未解析' }[node.kind];
       tree.tooltip = `${node.detail ?? node.label}\n${path.relative(item.state.folder.uri.fsPath, node.file)}`;
       tree.iconPath = new vscode.ThemeIcon(node.kind === 'unresolved' ? 'question' : 'symbol-method');
       const location = this.manager.location(item.state, node);
