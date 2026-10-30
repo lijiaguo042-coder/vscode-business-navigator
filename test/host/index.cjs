@@ -101,6 +101,26 @@ exports.run=async function run(){
  defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,configPos);
  assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('config/application.php')),'丢弃配置修改后恢复定义');
  console.log('HOST: 配置键 F12、反向引用、未保存编辑和丢弃通过');
+ const dynamicEditor=await vscode.window.showTextDocument(service);
+ const dynamicRoot=service.positionAt(service.getText().indexOf('huawei')+2);
+ defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,dynamicRoot);
+ assert.ok(defs.some(d=>(d.uri??d.targetUri).fsPath.endsWith('config/huawei.php') && (d.range??d.targetSelectionRange).start.line===0),'动态配置文件段应定位文件入口');
+ const dynamicGroup=service.positionAt(service.getText().indexOf('game_list')+2);
+ dynamicEditor.selection=new vscode.Selection(dynamicGroup,dynamicGroup);
+ defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,dynamicGroup);
+ const groupDefinition=defs.find(d=>(d.uri??d.targetUri).fsPath.endsWith('config/huawei.php'));
+ assert.ok(groupDefinition,'动态配置的静态前缀应有定义');
+ await vscode.commands.executeCommand('editor.action.revealDefinition');
+ const huawei=vscode.window.activeTextEditor.document;
+ assert.ok(huawei.uri.fsPath.endsWith('config/huawei.php'),'静态前缀 F12 必须打开对应配置文件');
+ const groupRange=groupDefinition.range??groupDefinition.targetSelectionRange;
+ assert.equal(huawei.getText(groupRange),"'game_list'");
+ assert.ok(vscode.window.activeTextEditor.selection.active.isEqual(groupRange.start),'静态前缀 F12 必须落在 game_list 键名起点');
+ for(const offset of [service.getText().indexOf('{$gameid}')+3,service.getText().indexOf('.appid')+2]){
+   defs=await vscode.commands.executeCommand('vscode.executeDefinitionProvider',service.uri,service.positionAt(offset));
+   assert.equal(defs.length,0,'动态配置变量和后缀不应误跳到静态前缀');
+ }
+ console.log('HOST: 动态配置静态前缀 F12 和动态边界通过');
  await vscode.window.showTextDocument(api);
  const edit=new vscode.WorkspaceEdit(); edit.replace(api.uri,new vscode.Range(api.positionAt(0),api.positionAt(api.getText().length)),api.getText().replace('/items','/missing'));
  await vscode.workspace.applyEdit(edit);

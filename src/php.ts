@@ -413,6 +413,25 @@ export function analyzePhp(files: Map<string, string>, root: string, entrypoints
       if (resolved === 'config' && !declaredFunctions.has('config') && typeof key === 'string') {
         const target = configTarget(key);
         if (target) result.configs.push({ node: target, site: span(file, node.arguments[0]) });
+      } else if (resolved === 'config' && !declaredFunctions.has('config') && node.arguments?.[0]?.kind === 'encapsed' && node.arguments[0].type === 'string') {
+        const fragment = node.arguments[0].value[0]?.expression;
+        if (fragment?.kind === 'string') {
+          const location = span(file, fragment);
+          const text = files.get(file)!.slice(location.start, location.end);
+          // 只使用首个动态片段之前的完整路径段，转义值不按解码长度计算源码偏移。
+          if (text === fragment.value) {
+            let prefix = '', consumed = 0;
+            for (const match of text.matchAll(/[^.]+\./g)) {
+              if (match.index !== consumed) break;
+              const segment = match[0].slice(0, -1);
+              prefix += (prefix ? '.' : '') + segment;
+              const target = configTarget(prefix);
+              if (!target) break;
+              result.configs.push({ node: target, site: { file, start: location.start + consumed, end: location.start + consumed + segment.length } });
+              consumed += match[0].length;
+            }
+          }
+        }
       }
     }
     for (const key of Object.keys(node)) if (!['loc', 'comments', 'tokens'].includes(key)) visitConfigCalls(node[key], file, scoped);

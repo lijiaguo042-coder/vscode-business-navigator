@@ -10,6 +10,36 @@ const fixture = new Map([
 ]);
 const options = {...defaults, routeEntrypoints: []};
 
+test('插值配置按光标所在静态前缀段定位，动态段及其后缀不猜测', () => {
+  const targetFile = '/p/config/huawei.php';
+  const config = "<?php return ['game_list'=>[42=>['appid'=>'stub']]];";
+  for (const expression of ['"huawei.game_list.{$gameid}.appid"', '"huawei.game_list.$gameid.appid"']) {
+    const source = `<?php $appid = config(${expression});`;
+    const files = new Map([[file, source], [targetFile, config]]);
+    const graph = buildIndex(files, '/p', options);
+    const root = graph.definitions(file, source.indexOf('huawei') + 2);
+    assert.equal(root[0]?.file, targetFile, expression);
+    assert.equal(root[0].start, 0);
+    const groupOffset = source.indexOf('game_list') + 2;
+    const group = graph.definitions(file, groupOffset);
+    assert.equal(group.length, 1);
+    assert.equal(config.slice(group[0].start, group[0].end), "'game_list'");
+    assert.ok(graph.references(group[0].id).some(site => site.start <= groupOffset && site.end > groupOffset && source.slice(site.start, site.end) === 'game_list'));
+    assert.deepEqual(graph.definitions(file, source.indexOf('gameid') + 2), []);
+    assert.deepEqual(graph.definitions(file, source.lastIndexOf('appid') + 2), []);
+  }
+});
+
+test('不完整或转义的静态片段不误跳到相似键，只有完整路径段可导航', () => {
+  const targetFile = '/p/config/huawei.php';
+  for (const expression of ['"huawei.game_list{$suffix}.appid"', '"huawei.game_{$suffix}.appid"', '"huawei.game\\x5flist.{$gameid}.appid"', '"{$provider}.game_list.appid"']) {
+    const source = `<?php config(${expression});`;
+    const graph = buildIndex(new Map([[file, source], [targetFile, "<?php return ['game_list'=>[]];"]]), '/p', options);
+    assert.deepEqual(graph.definitions(file, source.indexOf('game') + 2), [], expression);
+    assert.deepEqual(graph.definitions(file, source.lastIndexOf('appid') + 2), [], expression);
+  }
+});
+
 test('config 静态键定位配置数组键名，配置反向引用包含调用位置', () => {
   const graph = buildIndex(fixture, '/p', options);
   const offset = fixture.get(file).indexOf('application.upload_zipfile_v2') + 15;
